@@ -14,52 +14,49 @@ final class StoryListViewModel: ObservableObject {
     @Published var users: [User] = []
     @Published var isLoading = false
     @Published var hasMoreUsers = true
-    
-    private let userService: UserServiceProtocol
-    private let storyService: StoryServiceProtocol
-    
-    init(userService: UserServiceProtocol = ServiceLocator.shared.resolve(),
-         storyService: StoryServiceProtocol = ServiceLocator.shared.resolve()) {
-        self.userService = userService
-        self.storyService = storyService
+
+    private let service: UserServiceProtocol
+
+    init(service: UserServiceProtocol = ServiceLocator.shared.resolve()) {
+        self.service = service
     }
-    
+
     var usersWithUnseenStories: [User] {
         users.filter { $0.hasUnseenStories }
     }
-    
-    @MainActor
+
     func load() async {
         isLoading = true
         defer { isLoading = false }
-        
+
         do {
-            let savedUsers = try await userService.loadSavedUsers()
+            let savedUsers = try await service.loadSavedUsers()
             if !savedUsers.isEmpty {
                 users = savedUsers
-                await generateStoriesForUsersIfNeeded()
+                await generateStoriesIfNeeded()
             }
-            
             await loadMoreUsersIfNeeded()
         } catch {
             print("Failed to load initial data: \(error)")
         }
     }
-    
-    @MainActor
+
     func loadMoreUsersIfNeeded() async {
-        guard (!isLoading || users.isEmpty) && hasMoreUsers else { return }
-        
+        guard hasMoreUsers else { return }
+
         isLoading = true
         defer { isLoading = false }
-        
+
         do {
-            if let newUsers = try await userService.fetchNextPage() {
+            if let newUsers = try await service.fetchNextPage() {
                 if newUsers.isEmpty {
                     hasMoreUsers = false
                 } else {
-                    users.append(contentsOf: newUsers)
-                    await generateStoriesForUsers(newUsers)
+                    let filteredNewUsers = newUsers.filter { newUser in
+                        !users.contains(where: { $0.id == newUser.id })
+                    }
+                    users.append(contentsOf: filteredNewUsers)
+                    await generateStoriesIfNeeded()
                 }
             } else {
                 hasMoreUsers = false
@@ -68,43 +65,37 @@ final class StoryListViewModel: ObservableObject {
             print("Failed to load more users: \(error)")
         }
     }
-    
-    private func generateStoriesForUsersIfNeeded() async {
+
+    private func generateStoriesIfNeeded() async {
         let usersWithoutStories = users.filter { $0.stories.isEmpty }
-        await generateStoriesForUsers(usersWithoutStories)
+        await service.generateStories(for: usersWithoutStories)
     }
-    
-    private func generateStoriesForUsers(_ users: [User]) async {
-        await storyService.generateStoriesForUsers(users)
-    }
-    
+
     func markStorySeen(_ story: Story) async {
-        story.isSeen = true
         do {
-            try await storyService.markSeen(story)
+            try await service.markSeen(story)
         } catch {
             print("Failed to mark story as seen: \(error)")
         }
     }
-    
+
     func toggleStoryLike(_ story: Story) async {
-        story.isLiked.toggle()
         do {
-            try await storyService.toggleLike(story)
+            try await service.toggleLike(story)
         } catch {
             print("Failed to toggle story like: \(error)")
         }
     }
-    
-    func getNextStory(from currentStory: Story, in user: User) -> Story? {
-        guard let currentIndex = user.stories.firstIndex(where: { $0.id == currentStory.id }) else { return nil }
-        let nextIndex = currentIndex + 1
-        return nextIndex < user.stories.count ? user.stories[nextIndex] : nil
+
+    func getNextStory(from current: Story, in user: User) -> Story? {
+        guard let i = user.stories.firstIndex(where: { $0.id == current.id }) else { return nil }
+        let next = i + 1
+        return next < user.stories.count ? user.stories[next] : nil
     }
-    
-    func getPreviousStory(from currentStory: Story, in user: User) -> Story? {
-        guard let currentIndex = user.stories.firstIndex(where: { $0.id == currentStory.id }) else { return nil }
-        let previousIndex = currentIndex - 1
-        return previousIndex >= 0 ? user.stories[previousIndex] : nil
+
+    func getPreviousStory(from current: Story, in user: User) -> Story? {
+        guard let i = user.stories.firstIndex(where: { $0.id == current.id }) else { return nil }
+        let prev = i - 1
+        return prev >= 0 ? user.stories[prev] : nil
     }
 }

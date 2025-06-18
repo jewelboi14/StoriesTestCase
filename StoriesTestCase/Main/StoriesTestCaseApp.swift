@@ -20,12 +20,8 @@ struct StoriesApp: App {
         let userPersistence = UserPersistenceService(context: sharedModelContainer.mainContext)
         let userService = UserService(persistence: userPersistence)
 
-        let storyPersistence = StoryPersistenceService(context: sharedModelContainer.mainContext)
-        let storyService = StoryService(persistence: storyPersistence)
-
         ServiceLocator.shared.register(userService as UserServiceProtocol)
-        ServiceLocator.shared.register(storyPersistence as StoryPersistenceProtocol)
-        ServiceLocator.shared.register(storyService as StoryServiceProtocol)
+        ServiceLocator.shared.register(userPersistence as UserPersistenceServiceProtocol)
     }
 
     var body: some Scene {

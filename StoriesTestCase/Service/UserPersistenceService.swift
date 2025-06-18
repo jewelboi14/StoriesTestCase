@@ -8,13 +8,16 @@
 import SwiftData
 import Foundation
 
-protocol UserPersistenceProtocol {
+protocol UserPersistenceServiceProtocol {
     func saveUsers(_ users: [User]) async throws
     func fetchAllUsers() async throws -> [User]
+    func markSeen(_ story: Story) async throws
+    func toggleLike(_ story: Story) async throws
 }
 
-final class UserPersistenceService: UserPersistenceProtocol {
-    let context: ModelContext
+@MainActor
+final class UserPersistenceService: UserPersistenceServiceProtocol {
+    private let context: ModelContext
 
     init(context: ModelContext) {
         self.context = context
@@ -22,9 +25,14 @@ final class UserPersistenceService: UserPersistenceProtocol {
 
     func saveUsers(_ users: [User]) async throws {
         for user in users {
-            let fetchDescriptor = FetchDescriptor<User>(predicate: #Predicate { $0.id == user.id })
-            let existing = try context.fetch(fetchDescriptor)
-            if existing.isEmpty {
+            let descriptor = FetchDescriptor<User>(predicate: #Predicate { $0.id == user.id })
+            let existing = try context.fetch(descriptor)
+
+            if let existingUser = existing.first {
+                for story in user.stories where !existingUser.stories.contains(where: { $0.id == story.id }) {
+                    existingUser.stories.append(story)
+                }
+            } else {
                 context.insert(user)
             }
         }
@@ -32,8 +40,16 @@ final class UserPersistenceService: UserPersistenceProtocol {
     }
 
     func fetchAllUsers() async throws -> [User] {
-        let fetchDescriptor = FetchDescriptor<User>()
-        return try context.fetch(fetchDescriptor)
+        try context.fetch(FetchDescriptor<User>())
+    }
+
+    func markSeen(_ story: Story) async throws {
+        story.isSeen = true
+        try context.save()
+    }
+
+    func toggleLike(_ story: Story) async throws {
+        story.isLiked.toggle()
+        try context.save()
     }
 }
-
